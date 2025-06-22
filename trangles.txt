@@ -1,0 +1,168 @@
+trangles
+#include <glad/glad.h>
+#include <GLFW/glfw3.h>
+#include <cmath>
+#include <vector>
+#include <iostream>
+
+const unsigned int SCR_WIDTH = 800;
+const unsigned int SCR_HEIGHT = 800;
+const float M_PI = 3.14159265358979323846f;
+
+void framebuffer_size_callback(GLFWwindow* window, int width, int height);
+void processInput(GLFWwindow *window);
+
+// Shader sources
+const char* vertexShaderSource = R"(
+#version 330 core
+layout (location = 0) in vec2 aPos;
+void main() {
+    gl_Position = vec4(aPos, 0.0, 1.0);
+})";
+
+const char* fragmentShaderSource = R"(
+#version 330 core
+out vec4 FragColor;
+uniform vec3 uColor;
+void main() {
+    FragColor = vec4(uColor, 1.0);
+})";
+
+// Convert polar to cartesian
+void polarToCartesian(float radius, float angle, float& x, float& y) {
+    x = radius * cos(angle);
+    y = radius * sin(angle);
+}
+
+// Generate a ring using triangle strip
+void generateRing(std::vector<float>& vertices, float innerR, float outerR, int segments) {
+    float angleStep = 2 * M_PI / segments;
+    for (int i = 0; i <= segments; ++i) {
+        float angle = i * angleStep;
+        float xIn, yIn, xOut, yOut;
+        polarToCartesian(innerR, angle, xIn, yIn);
+        polarToCartesian(outerR, angle, xOut, yOut);
+
+        vertices.push_back(xOut);
+        vertices.push_back(yOut);
+        vertices.push_back(xIn);
+        vertices.push_back(yIn);
+    }
+}
+
+unsigned int createVAO(const std::vector<float>& data, int stride = 2) {
+    unsigned int VAO, VBO;
+    glGenVertexArrays(1, &VAO);
+    glGenBuffers(1, &VBO);
+    glBindVertexArray(VAO);
+    glBindBuffer(GL_ARRAY_BUFFER, VBO);
+    glBufferData(GL_ARRAY_BUFFER, data.size() * sizeof(float), data.data(), GL_STATIC_DRAW);
+    glVertexAttribPointer(0, stride, GL_FLOAT, GL_FALSE, stride * sizeof(float), nullptr);
+    glEnableVertexAttribArray(0);
+    return VAO;
+}
+
+int main() {
+    // GLFW and OpenGL setup
+    glfwInit();
+    glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
+    glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
+    glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
+    GLFWwindow* window = glfwCreateWindow(SCR_WIDTH, SCR_HEIGHT, "Manual Aperture Blades", nullptr, nullptr);
+    if (!window) {
+        std::cerr << "Failed to create GLFW window\n";
+        glfwTerminate();
+        return -1;
+    }
+    glfwMakeContextCurrent(window);
+    glfwSetFramebufferSizeCallback(window, framebuffer_size_callback);
+    if (!gladLoadGLLoader((GLADloadproc)glfwGetProcAddress)) {
+        std::cerr << "Failed to initialize GLAD\n";
+        return -1;
+    }
+
+    // Compile shaders
+    GLuint vertexShader = glCreateShader(GL_VERTEX_SHADER);
+    GLuint fragmentShader = glCreateShader(GL_FRAGMENT_SHADER);
+    glShaderSource(vertexShader, 1, &vertexShaderSource, nullptr);
+    glCompileShader(vertexShader);
+    glShaderSource(fragmentShader, 1, &fragmentShaderSource, nullptr);
+    glCompileShader(fragmentShader);
+    GLuint shaderProgram = glCreateProgram();
+    glAttachShader(shaderProgram, vertexShader);
+    glAttachShader(shaderProgram, fragmentShader);
+    glLinkProgram(shaderProgram);
+    glDeleteShader(vertexShader);
+    glDeleteShader(fragmentShader);
+    GLint colorLoc = glGetUniformLocation(shaderProgram, "uColor");
+
+    // --- Blade Coordinates (manually defined) ---
+    std::vector<float> blades = {
+        // Triangle 1
+        0.05f, -0.1f,   0.7f,-0.1f,    0.7f, 0.45f,
+
+        // Triangle 2
+        0.1f, 0.1f,   0.1f, 0.7f,   -0.43f, 0.7f,
+
+        // Triangle 3
+        -0.08f, 0.135f,  -0.7f, 0.135f,   -0.7f, -0.45f,
+
+        // Triangle 4
+        -0.13f, -0.07f,  -0.13f, -0.7f,   0.5f, -0.7f,
+
+        // Triangle 5 (diagonal)
+        0.13f, 0.0f,   0.7f, 0.5f,    0.13f, 0.7f,
+
+        // Triangle 6 (diagonal)
+        0.0f, 0.17f,  -0.7f, 0.17f,   -0.48f, 0.7f,
+
+        // Triangle 7 (diagonal)
+        -0.16f, 0.03f,  -0.65f, -0.45f,  -0.16f, -0.7f,
+
+        // Triangle 8 (diagonal)
+        -0.04f, -0.13f,   0.7f, -0.13f,   0.55f, -0.7f,
+    };
+
+    unsigned int vaoBlades = createVAO(blades);
+
+    // --- White Ring (for masking blade ends) ---
+    std::vector<float> ring;
+    generateRing(ring, 0.65f, 1.45f, 100);
+    unsigned int vaoRing = createVAO(ring);
+
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+
+    // --- Render Loop ---
+    while (!glfwWindowShouldClose(window)) {
+        processInput(window);
+        glClearColor(1.0f, 1.0f, 1.0f, 1.0f);
+        glClear(GL_COLOR_BUFFER_BIT);
+        glUseProgram(shaderProgram);
+
+        // Draw blades (black)
+        glUniform3f(colorLoc, 0.0f, 0.0f, 0.0f);
+        glBindVertexArray(vaoBlades);
+        glDrawArrays(GL_TRIANGLES, 0, blades.size() / 2);
+
+        // Draw white masking ring
+        glUniform3f(colorLoc, 1.0f, 1.0f, 1.0f);
+        glBindVertexArray(vaoRing);
+        glDrawArrays(GL_TRIANGLE_STRIP, 0, ring.size() / 2);
+
+        glfwSwapBuffers(window);
+        glfwPollEvents();
+    }
+
+    glfwTerminate();
+    return 0;
+}
+
+void processInput(GLFWwindow *window) {
+    if (glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS)
+        glfwSetWindowShouldClose(window, true);
+}
+
+void framebuffer_size_callback(GLFWwindow* window, int width, int height) {
+    glViewport(0, 0, width, height);
+}

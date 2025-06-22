@@ -1,0 +1,172 @@
+bmw logo
+#include <glad/glad.h>
+#include <GLFW/glfw3.h>
+#include <vector>
+#include <iostream>
+#include <cmath>
+const float M_PI = 3.14159265358979323846;
+void framebuffer_size_callback(GLFWwindow* window, int width, int height);
+void processInput(GLFWwindow *window);
+void createCircle(std::vector<float>& vertices, float cx, float cy, float radius, int segments, float startAngle = 0.0f, float endAngle = 2.0f * M_PI);
+unsigned int createVAO(const std::vector<float>& vertices);
+
+// Window settings
+const unsigned int SCR_WIDTH = 800;
+const unsigned int SCR_HEIGHT = 800;
+
+// Shaders
+const char *vertexShaderSource = R"(#version 330 core
+layout (location = 0) in vec3 aPos;
+void main()
+{
+    gl_Position = vec4(aPos, 1.0);
+})";
+
+const char *fragmentShaderSource = R"(#version 330 core
+out vec4 FragColor;
+uniform vec3 uColor;
+void main()
+{
+    FragColor = vec4(uColor, 1.0);
+})";
+
+int main() {
+    glfwInit();
+    glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
+    glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
+    glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
+
+    GLFWwindow* window = glfwCreateWindow(SCR_WIDTH, SCR_HEIGHT, "BMW Logo", nullptr, nullptr);
+    if (!window) {
+        std::cout << "Failed to create GLFW window" << std::endl;
+        glfwTerminate();
+        return -1;
+    }
+    glfwMakeContextCurrent(window);
+    glfwSetFramebufferSizeCallback(window, framebuffer_size_callback);
+
+    if (!gladLoadGLLoader((GLADloadproc) glfwGetProcAddress)) {
+        std::cout << "Failed to initialize GLAD" << std::endl;
+        return -1;
+    }
+
+    // Compile shaders
+    GLuint vertexShader = glCreateShader(GL_VERTEX_SHADER);
+    glShaderSource(vertexShader, 1, &vertexShaderSource, nullptr);
+    glCompileShader(vertexShader);
+    GLuint fragmentShader = glCreateShader(GL_FRAGMENT_SHADER);
+    glShaderSource(fragmentShader, 1, &fragmentShaderSource, nullptr);
+    glCompileShader(fragmentShader);
+
+    GLuint shaderProgram = glCreateProgram();
+    glAttachShader(shaderProgram, vertexShader);
+    glAttachShader(shaderProgram, fragmentShader);
+    glLinkProgram(shaderProgram);
+    glDeleteShader(vertexShader);
+    glDeleteShader(fragmentShader);
+
+    // Shapes
+    std::vector<float>BlackLast, whiteOuter, blackOuter, whiteInner, blackInner;
+    std::vector<float> quad1, quad2, quad3, quad4;
+
+    int segments = 100;
+    createCircle(BlackLast, 0.0f, 0.0f, 0.68f, segments);
+    createCircle(whiteOuter, 0.0f, 0.0f, 0.65f, segments);
+    createCircle(blackOuter, 0.0f, 0.0f, 0.63f, segments);
+    createCircle(whiteInner, 0.0f, 0.0f, 0.45f, segments);
+    createCircle(blackInner, 0.0f, 0.0f, 0.43f, segments);
+
+    createCircle(quad1, 0.0f, 0.0f, 0.4f, segments / 4, 0.0f, M_PI / 2);          // White
+    createCircle(quad2, 0.0f, 0.0f, 0.4f, segments / 4, M_PI / 2, M_PI);         // Blue
+    createCircle(quad3, 0.0f, 0.0f, 0.4f, segments / 4, M_PI, 3 * M_PI / 2);     // White
+    createCircle(quad4, 0.0f, 0.0f, 0.4f, segments / 4, 3 * M_PI / 2, 2 * M_PI); // Blue
+
+    // Create VAOs
+    unsigned int vaoBlackLast = createVAO(BlackLast);
+    unsigned int vaoWhiteOuter = createVAO(whiteOuter);
+    unsigned int vaoBlackOuter = createVAO(blackOuter);
+    unsigned int vaoWhiteInner = createVAO(whiteInner);
+    unsigned int vaoBlackInner = createVAO(blackInner);
+    unsigned int vaoQ1 = createVAO(quad1);
+    unsigned int vaoQ2 = createVAO(quad2);
+    unsigned int vaoQ3 = createVAO(quad3);
+    unsigned int vaoQ4 = createVAO(quad4);
+
+    int colorLoc = glGetUniformLocation(shaderProgram, "uColor");
+
+    while (!glfwWindowShouldClose(window)) {
+        processInput(window);
+        glClearColor(1.0f, 1.0f, 1.0f, 1.0f); // white background
+        glClear(GL_COLOR_BUFFER_BIT);
+
+        glUseProgram(shaderProgram);
+
+        // Draw in proper order with colors
+        glUniform3f(colorLoc, 0.0f, 0.0f, 0.0f);
+        glBindVertexArray(vaoBlackLast);
+        glDrawArrays(GL_TRIANGLE_FAN, 0, BlackLast.size() / 3);
+        glUniform3f(colorLoc, 1.0f, 1.0f, 1.0f);
+        glBindVertexArray(vaoWhiteOuter);
+        glDrawArrays(GL_TRIANGLE_FAN, 0, whiteOuter.size() / 3);
+
+        glUniform3f(colorLoc, 0.0f, 0.0f, 0.0f);
+        glBindVertexArray(vaoBlackOuter);
+        glDrawArrays(GL_TRIANGLE_FAN, 0, blackOuter.size() / 3);
+
+        glUniform3f(colorLoc, 1.0f, 1.0f, 1.0f);
+        glBindVertexArray(vaoWhiteInner);
+        glDrawArrays(GL_TRIANGLE_FAN, 0, whiteInner.size() / 3);
+
+        glUniform3f(colorLoc, 0.0f, 0.0f, 0.0f);
+        glBindVertexArray(vaoBlackInner);
+        glDrawArrays(GL_TRIANGLE_FAN, 0, blackInner.size() / 3);
+
+        // Quadrants: White, Blue, White, Blue
+        glUniform3f(colorLoc, 1.0f, 1.0f, 1.0f); glBindVertexArray(vaoQ1); glDrawArrays(GL_TRIANGLE_FAN, 0, quad1.size() / 3);
+        glUniform3f(colorLoc, 0.0f, 0.0f, 0.5f); glBindVertexArray(vaoQ2); glDrawArrays(GL_TRIANGLE_FAN, 0, quad2.size() / 3);
+        glUniform3f(colorLoc, 1.0f, 1.0f, 1.0f); glBindVertexArray(vaoQ3); glDrawArrays(GL_TRIANGLE_FAN, 0, quad3.size() / 3);
+        glUniform3f(colorLoc, 0.0f, 0.0f, 0.5f); glBindVertexArray(vaoQ4); glDrawArrays(GL_TRIANGLE_FAN, 0, quad4.size() / 3);
+
+        glfwSwapBuffers(window);
+        glfwPollEvents();
+    }
+
+    glfwTerminate();
+    return 0;
+}
+
+// Util: Generate triangle fan vertices
+void createCircle(std::vector<float>& vertices, float cx, float cy, float radius, int segments, float startAngle, float endAngle) {
+    vertices.push_back(cx); vertices.push_back(cy); vertices.push_back(0.0f);
+    float angleStep = (endAngle - startAngle) / segments;
+    for (int i = 0; i <= segments; ++i) {
+        float angle = startAngle + i * angleStep;
+        vertices.push_back(cx + radius * cos(angle));
+        vertices.push_back(cy + radius * sin(angle));
+        vertices.push_back(0.0f);
+    }
+}
+
+// Util: Create VAO/VBO from vertex list
+unsigned int createVAO(const std::vector<float>& vertices) {
+    unsigned int VAO, VBO;
+    glGenVertexArrays(1, &VAO);
+    glGenBuffers(1, &VBO);
+    glBindVertexArray(VAO);
+    glBindBuffer(GL_ARRAY_BUFFER, VBO);
+    glBufferData(GL_ARRAY_BUFFER, vertices.size() * sizeof(float), vertices.data(), GL_STATIC_DRAW);
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), nullptr);
+    glEnableVertexAttribArray(0);
+    return VAO;
+}
+
+// Input
+void processInput(GLFWwindow *window) {
+    if (glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS)
+        glfwSetWindowShouldClose(window, true);
+}
+
+// Resize
+void framebuffer_size_callback(GLFWwindow* window, int width, int height) {
+    glViewport(0, 0, width, height);
+}

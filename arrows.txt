@@ -1,0 +1,178 @@
+#include <glad/glad.h>
+#include <GLFW/glfw3.h>
+#include <cmath>
+#include <vector>
+#include <iostream>
+
+const unsigned int SCR_WIDTH = 800;
+const unsigned int SCR_HEIGHT = 800;
+const float M_PI = 3.14159265358979323846;
+const float M_PI_2 = 1.5707963268;
+void framebuffer_size_callback(GLFWwindow* window, int width, int height);
+void processInput(GLFWwindow *window);
+
+// Shader sources
+const char* vertexShaderSource = R"(
+#version 330 core
+layout (location = 0) in vec2 aPos;
+void main() {
+    gl_Position = vec4(aPos, 0.0, 1.0);
+})";
+
+const char* fragmentShaderSource = R"(
+#version 330 core
+out vec4 FragColor;
+uniform vec3 uColor;
+void main() {
+    FragColor = vec4(uColor, 1.0);
+})";
+
+// Converts polar coordinates to cartesian (normalized)
+void polarToCartesian(float radius, float angle, float& x, float& y) {
+    x = radius * cos(angle);
+    y = radius * sin(angle);
+}
+
+// Updated clean arrow arc generator
+void generateArrow(std::vector<float>& vertices, float innerR, float outerR,
+                   float angleStart, float angleEnd, float tipAngleSize, int segments) {
+    float baseStart = angleStart + tipAngleSize;
+    float baseEnd = angleEnd - tipAngleSize;
+    float step = (baseEnd - baseStart) / segments;
+
+    // Arc ring (middle portion only, skipping the start notch)
+    for (int i = 0; i < segments; i++) {
+        float a0 = baseStart + i * step;
+        float a1 = baseStart + (i + 1) * step;
+
+        float x0i, y0i, x0o, y0o, x1i, y1i, x1o, y1o;
+        polarToCartesian(innerR, a0, x0i, y0i);
+        polarToCartesian(outerR, a0, x0o, y0o);
+        polarToCartesian(innerR, a1, x1i, y1i);
+        polarToCartesian(outerR, a1, x1o, y1o);
+
+        // Each arc slice is two triangles (a quad)
+        vertices.insert(vertices.end(), { x0i, y0i, x0o, y0o, x1o, y1o });
+        vertices.insert(vertices.end(), { x0i, y0i, x1o, y1o, x1i, y1i });
+    }
+
+    // ▶ Arrow tip at the END
+    {
+        float baseInX, baseInY, baseOutX, baseOutY, tipX, tipY;
+        polarToCartesian(innerR, baseStart, baseInX, baseInY);
+        polarToCartesian(outerR, baseStart, baseOutX, baseOutY);
+        float midR = (innerR + outerR) / 2.0f;
+        polarToCartesian(midR, angleStart, tipX, tipY);
+
+        vertices.insert(vertices.end(), {
+            baseInX, baseInY,
+            tipX, tipY,
+            baseOutX, baseOutY
+        });
+    }
+
+
+}
+
+
+
+unsigned int createVAO(const std::vector<float>& data) {
+    unsigned int VAO, VBO;
+    glGenVertexArrays(1, &VAO);
+    glGenBuffers(1, &VBO);
+
+    glBindVertexArray(VAO);
+    glBindBuffer(GL_ARRAY_BUFFER, VBO);
+    glBufferData(GL_ARRAY_BUFFER, data.size() * sizeof(float), data.data(), GL_STATIC_DRAW);
+
+    glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 2 * sizeof(float), nullptr);
+    glEnableVertexAttribArray(0);
+
+    return VAO;
+}
+
+int main() {
+    glfwInit();
+    glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
+    glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
+    glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
+    GLFWwindow* window = glfwCreateWindow(SCR_WIDTH, SCR_HEIGHT, "Arrows Circle", nullptr, nullptr);
+    if (!window) {
+        std::cerr << "Failed to create window\n";
+        glfwTerminate();
+        return -1;
+    }
+    glfwMakeContextCurrent(window);
+    glfwSetFramebufferSizeCallback(window, framebuffer_size_callback);
+    if (!gladLoadGLLoader((GLADloadproc)glfwGetProcAddress)) {
+        std::cerr << "Failed to initialize GLAD\n";
+        return -1;
+    }
+
+    // Compile shaders
+    GLuint vertexShader = glCreateShader(GL_VERTEX_SHADER);
+    GLuint fragmentShader = glCreateShader(GL_FRAGMENT_SHADER);
+    glShaderSource(vertexShader, 1, &vertexShaderSource, nullptr);
+    glCompileShader(vertexShader);
+    glShaderSource(fragmentShader, 1, &fragmentShaderSource, nullptr);
+    glCompileShader(fragmentShader);
+    GLuint shaderProgram = glCreateProgram();
+    glAttachShader(shaderProgram, vertexShader);
+    glAttachShader(shaderProgram, fragmentShader);
+    glLinkProgram(shaderProgram);
+    glDeleteShader(vertexShader);
+    glDeleteShader(fragmentShader);
+    GLint colorLoc = glGetUniformLocation(shaderProgram, "uColor");
+
+    // Geometry setup
+    std::vector<float> darkArrow, blueArrow;
+    float rInner = 0.5f, rOuter = 0.7f;
+    float tipAngle = 0.15f; // cleaner, smaller tip
+    int arcSegments = 50;
+
+    // Arcs: left and right
+    generateArrow(darkArrow, rInner, rOuter, M_PI_2, 3 * M_PI_2, tipAngle, arcSegments);  // Left
+    generateArrow(blueArrow, rInner, rOuter, 3 * M_PI_2, 5 * M_PI_2, tipAngle, arcSegments);      // Right
+
+    unsigned int vaoDark = createVAO(darkArrow);
+    unsigned int vaoBlue = createVAO(blueArrow);
+
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+    //glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
+
+
+    // Main render loop
+    while (!glfwWindowShouldClose(window)) {
+        processInput(window);
+        glClearColor(1.0f, 1.0f, 1.0f, 1.0f);
+        glClear(GL_COLOR_BUFFER_BIT);
+
+        glUseProgram(shaderProgram);
+
+        // Draw dark arc
+        glUniform3f(colorLoc, 0.15f, 0.15f, 0.15f);
+        glBindVertexArray(vaoDark);
+        glDrawArrays(GL_TRIANGLES, 0, darkArrow.size() / 2);
+
+        // Draw blue arc
+        glUniform3f(colorLoc, 0.0f, 0.7f, 1.0f);
+        glBindVertexArray(vaoBlue);
+        glDrawArrays(GL_TRIANGLES, 0, blueArrow.size() / 2);
+
+        glfwSwapBuffers(window);
+        glfwPollEvents();
+    }
+
+    glfwTerminate();
+    return 0;
+}
+
+void processInput(GLFWwindow *window) {
+    if (glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS)
+        glfwSetWindowShouldClose(window, true);
+}
+
+void framebuffer_size_callback(GLFWwindow* window, int width, int height) {
+    glViewport(0, 0, width, height);
+}
